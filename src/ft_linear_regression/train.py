@@ -1,27 +1,31 @@
 import pandas as pd
+import numpy as np
 from .estimate import linear_regression
 from . import config
+from .plot import draw_scatter
 
 def load_csv(csv_path: str) -> pd.DataFrame:
-	return pd.read_csv(csv_path, delimiter=",", header=0)
+	data = pd.read_csv(csv_path, delimiter=",", header=0)
+	data.km /= 1000
+	return data.sort_values(by="km", ascending=False)
 
-def train_model(csv_path: str) -> None:
-	dataset: pd.DataFrame = load_csv(csv_path)
-	tmp_tetha_0: float = config.TETHA_0
-	tmp_tetha_1: float = config.TETHA_1
-	learing_rate: float = config.LEARNING_RATE
+def train_model(dataset: pd.DataFrame) -> None:
+	learning_rate: float = config.LEARNING_RATE
 	population: int = len(dataset)
-	tmp_sum_tetha_0: float = .0
-	tmp_sum_tetha_1: float = .0
-	
+	sum_tetha_0: float = .0
+	sum_tetha_1: float = .0
+	# diffs: np.ndarray = [0] * population
+
 	for row in dataset.itertuples(index=True):
-		if row.index == population - 1:
+		if row.Index == population - 1:
 			break
+		estimated_price: float = linear_regression(config.TETHA_1, config.TETHA_0, row.km)
+		sum_tetha_0 += row.price - estimated_price
+		sum_tetha_1 += (row.price - estimated_price) * row.km
+		# diffs[row.Index] = estimated_price - row.price
 
-		tmp_sum_tetha_0 += (linear_regression(tmp_tetha_0, tmp_tetha_1, row.km) - row.price)
-		tmp_sum_tetha_1 += (linear_regression(tmp_tetha_0, tmp_tetha_1, row.km) - row.price) * row.km
-		# print(f"tmp_t_0: {tmp_sum_tetha_0} - tmp_t_1: {tmp_sum_tetha_1}")
+	# X = dataset.km.to_numpy()
+	# draw_scatter(X, diffs, index_graph=1, color='orange', label='deltas', s=10)
 
-	config.TETHA_0 = learing_rate * tmp_sum_tetha_0 / population
-	config.TETHA_1 = learing_rate * tmp_sum_tetha_1 / population
-	print(f"res_t_0: {config.TETHA_0} res_t_1: {config.TETHA_1}")
+	config.TETHA_0 -= learning_rate * sum_tetha_0 / population
+	config.TETHA_1 -= learning_rate * sum_tetha_1 / population
