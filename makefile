@@ -1,11 +1,11 @@
 VENV_PATH = ./.venv
 
 $(VENV_PATH):
-	poetry install
+	@poetry install
 
 all: run
 
 build: $(VENV_PATH)
 
 run: build
-	poetry run python src/main.py
+	@poetry run python src/main.py
