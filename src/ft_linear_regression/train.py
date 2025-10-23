@@ -1,31 +1,46 @@
 import pandas as pd
 import numpy as np
-from .estimate import linear_regression
-from . import config
-from .plot import draw_scatter
 
-def load_csv(csv_path: str) -> pd.DataFrame:
+def load_csv(csv_path: str, scale_factor=1.) -> tuple[np.ndarray, np.ndarray]:
 	data = pd.read_csv(csv_path, delimiter=",", header=0)
-	data.km /= 1000
-	return data.sort_values(by="km", ascending=False)
+	data.sort_values(by=data.columns[0], ascending=False)
+	x_data: np.ndarray = data.iloc[:, 0].to_numpy() / scale_factor
+	y_data: np.ndarray = data.iloc[:, 1].to_numpy() / scale_factor
+	return x_data, y_data
 
-def train_model(dataset: pd.DataFrame) -> None:
-	learning_rate: float = config.LEARNING_RATE
-	population: int = len(dataset)
-	sum_tetha_0: float = .0
-	sum_tetha_1: float = .0
-	# diffs: np.ndarray = [0] * population
+def mae(est_data: np.ndarray, exp_data: np.ndarray) -> float:
+	m: int = len(est_data)
+	deltas: np.ndarray = est_data - exp_data
+	residuals = sum([abs(delta) for delta in deltas])
+	return residuals / m
 
-	for row in dataset.itertuples(index=True):
-		if row.Index == population - 1:
-			break
-		estimated_price: float = linear_regression(config.TETHA_1, config.TETHA_0, row.km)
-		sum_tetha_0 += row.price - estimated_price
-		sum_tetha_1 += (row.price - estimated_price) * row.km
-		# diffs[row.Index] = estimated_price - row.price
+def mse(est_data: np.ndarray, exp_data: np.ndarray, squared=True) -> float:
+	m: int = len(est_data)
+	deltas: np.ndarray = est_data - exp_data
+	residuals = sum([delta ** 2 for delta in deltas])
 
-	# X = dataset.km.to_numpy()
-	# draw_scatter(X, diffs, index_graph=1, color='orange', label='deltas', s=10)
+	return residuals ** 0.5 if squared else residuals / m
 
-	config.TETHA_0 -= learning_rate * sum_tetha_0 / population
-	config.TETHA_1 -= learning_rate * sum_tetha_1 / population
+def estimate_y(m: float, q: float, x: float) -> float:
+	return m * x + q
+
+def train_model(x_data: np.ndarray, y_data: np.ndarray, epochs: int, learning_rate: int) -> None:
+	population: int = len(x_data)
+	train_data = {
+		"learning_rate": learning_rate,
+		"tetha_0": .0,
+		"tetha_1": .0,
+		"mse": .0,
+		"mae": .0
+	}
+
+	for _ in range(epochs):
+		delta_y = train_data["tetha_1"] * x_data + train_data["tetha_0"] - y_data
+
+		train_data["tetha_0"] -= learning_rate * sum(delta_y) / population
+		train_data["tetha_1"] -= learning_rate * sum(delta_y * x_data) / population
+
+	estimated_y = train_data["tetha_1"] * x_data + train_data["tetha_0"]
+	train_data["mse"] = mse(y_data, estimated_y)
+	train_data["mae"] = mae(y_data, estimated_y)
+	return train_data
