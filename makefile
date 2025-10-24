@@ -8,4 +8,5 @@ all: run
 build: $(VENV_PATH)
 
 run: build
+	@clear
 	@poetry run python src/main.py
