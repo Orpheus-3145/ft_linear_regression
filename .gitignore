@@ -206,5 +206,8 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-# PDF of data
+# PDF representing the plotted data
 *.pdf
+
+# file with best fit tetha0 and tetha1
+.tethas

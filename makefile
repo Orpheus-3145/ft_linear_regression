@@ -1,12 +1,17 @@
-VENV_PATH = ./.venv
+VENV_PATH = .venv
+VENV = .venv
+INPUT ?= 100000
 
-$(VENV_PATH):
+$(VENV):
 	@poetry install
 
-all: run
+all: build
 
-build: $(VENV_PATH)
+build: $(VENV)
 
-run: build
+train: build
 	@clear
-	@poetry run python src/main.py
+	@poetry run python src/train_model.py
+
+estimate: build
+	@poetry run python src/estimate_value.py --input $(INPUT)
