@@ -84,7 +84,7 @@ class Plotter:
 					color="blue")
 
 		y_estimated: np.ndarray = estimator(x_data)
-		self._draw_line(x_data, y_estimated, show_legend, **plot_args)
+		self._draw_line(x_data, y_estimated, "", False, False, **plot_args)
 		self.current_ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:.0f}km"))
 		self.current_ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:.0f}€"))
 		self.current_ax = None
