@@ -25,21 +25,22 @@ def main():
 		parser = argparse.ArgumentParser()
 		parser.add_argument("--input", type=np.float64, required=True)
 		args = parser.parse_args()
-	except SystemExit as error:
+	except SystemExit:
 		return
 
 	fit_data: TrainingData = TrainingData(tetha_0, tetha_1)
 	estimated_value: np.float64 = fit_data.estimate(args.input)
 
 	print(f"""
-	tetha0: {fit_data.tetha_0:15.5f}
-	tetha1: {fit_data.tetha_1:15.5f}
-	input feature: {args.input:.2f}km
-	 _________________________________________ 
-	|                                         |
-	| estimated target: {estimated_value:20.2f}€ |
-	|_________________________________________|
+tetha0: {fit_data.tetha_0:15.4f}
+tetha1: {fit_data.tetha_1:15.4f}
+input feature: {args.input:.2f}km
+ _________________________________________ 
+|                                         |
+| estimated target: {estimated_value:20.2f}€ |
+|_________________________________________|
 """)
+
 
 if __name__ == "__main__":
 	main()

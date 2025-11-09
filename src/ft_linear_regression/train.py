@@ -8,14 +8,16 @@ import time, sys, os
 from ft_linear_regression.plot import Plotter
 
 
-class TrainingError(Exception): pass
+class TrainingError(Exception):
+	pass
 
 
 class TrainingData:
-	def __init__(self, tetha_0: np.float64, tetha_1: np.float64, feature: np.ndarray=[], target: np.ndarray=[]) -> None:
+	def __init__(self, tetha_0: np.float64, tetha_1: np.float64, feature: np.ndarray = [], target: np.ndarray = [], train_progression: dict = {}) -> None:
 		self.color: list[np.float64] = np.random.default_rng(seed=int(time.time() * 10000)).random(3)
 		self.tetha_0: np.float64 = tetha_0
 		self.tetha_1: np.float64 = tetha_1
+		self.train_progression: np.ndarray = train_progression
 		self.mae: np.float64 = .0
 		self.rmse: np.float64 = .0
 		self.ratio_rmse_dev: np.float64 = .0
@@ -27,19 +29,17 @@ class TrainingData:
 			self.rmse: np.float64 = _mse(target, estimated_target)
 			self.ratio_rmse_dev: np.float64 = (self.rmse / _stddev(target)) * 100
 			self.r_determination: np.float64 = _rsquared(target, estimated_target)
-			if self.r_determination < 0:
-				self.r_correlation = np.sqrt(self.r_determination * -1, dtype=np.float64) * -1
-			else:
-				self.r_correlation = np.sqrt(self.r_determination, dtype=np.float64)
+			self.r_correlation = np.sqrt(self.r_determination, dtype=np.float64)
+			if self.tetha_1 < 0:
+				self.r_correlation *= -1
 
 	def __str__(self) -> None:
-		corr_str = f"{self.r_correlation:>22.4f}" if self.r_correlation >= 0 else " invalid [R squared<0]".rjust(20)
 		return f"""
  _______________________________________________________
 |                                                       |
-| tetha_0:                       {self.tetha_0:>22.6f} |
+| tetha_0:                       {self.tetha_0:>22.4f} |
 |-------------------------------------------------------|
-| tetha_1:                       {self.tetha_1:>22.6f} |
+| tetha_1:                       {self.tetha_1:>22.4f} |
 |-------------------------------------------------------|
 | MAE:                           {self.mae:>21.2f}€ |
 |-------------------------------------------------------|
@@ -47,9 +47,9 @@ class TrainingData:
 |-------------------------------------------------------|
 | ratio RMSE on std. dev.:  {self.ratio_rmse_dev:>26.2f}% |
 |-------------------------------------------------------|
-| R squared:                     {self.r_determination:>22.4f} |
+| R squared:                     {self.r_determination:>22.2f} |
 |-------------------------------------------------------|
-| correlation index:             {corr_str} |
+| correlation index:             {self.r_correlation:>22.2f} |
 |_______________________________________________________|
 """
 
@@ -107,6 +107,9 @@ class TrainerLR:
 		self.norm_feature: np.ndarray = (self.feature - min_feature) / (max_feature - min_feature)
 		self.normalized_data = True
 
+	def set_learning_rate(self, learning_rate: np.float64) -> None:
+		self.trained_data[learning_rate] = None
+
 	def generate_lr_range(self, min: np.float64, max: np.float64, n_items: np.int64, linear_scale: bool = False) -> None:
 		learning_rage_values: np.ndarray = []
 		if linear_scale:
@@ -116,12 +119,12 @@ class TrainerLR:
 			learning_rage_values = np.logspace(min, max, n_items)
 		self.trained_data = {lr: None for lr in learning_rage_values}
 
-	def train_model(self) -> None:
+	def train_model(self, store_progression: bool = False) -> None:
 		_learning_rates: np.ndarray = list(self.trained_data.keys())
 		if not self.N:
 			raise TrainingError("No data read from any source, call .load_csv() first")
 		elif not len(_learning_rates):
-			raise TrainingError("No learning rates generated, call .generate_lr_range() first")
+			raise TrainingError("No learning rates generated, call .set_learning_rate()/.generate_lr_range() first")
 		self.trained_data.clear()
 
 		if self.standardized_data:
@@ -133,7 +136,7 @@ class TrainerLR:
 		target: np.ndarray = self.target
 
 		for lr_value in _learning_rates:
-			train_result = _trainLR(feature, target, self.N, self.epochs, lr_value)
+			train_result = _trainLR(feature, target, self.N, self.epochs, lr_value, proc_info=None, store_progression=store_progression)
 			self._add_new_data(**train_result)
 		self._set_best_fit()
 
@@ -144,7 +147,7 @@ class TrainerLR:
 		if not self.N:
 			raise TrainingError("No data read from any source, call .load_csv() first")
 		elif not len(_learning_rates):
-			raise TrainingError("No learning rates generated, call .generate_lr_range() first")
+			raise TrainingError("No learning rates generated, call .set_learning_rate()/.generate_lr_range() first")
 		self.trained_data.clear()
 
 		if self.standardized_data:
@@ -154,7 +157,7 @@ class TrainerLR:
 		else:
 			feature: np.ndarray = self.feature
 		target: np.ndarray = self.target
-		
+
 		# list of proxy data shared between children and parent
 		manager = Manager()
 		proc_info_list = [manager.Namespace() for _ in range(n_items)]
@@ -168,7 +171,8 @@ class TrainerLR:
 			futures: list[Future] = [pool.submit(_trainer, _learning_rates[i], proc_info_list[i]) for i in range(n_items)]
 
 			# wait until the last process has started
-			while proc_info_list[-1].pid == -1: pass
+			while proc_info_list[-1].pid == -1:
+				pass
 			# show progress of trainging of every process
 			while True:
 				if sum([f.done() for f in futures]) == n_items:
@@ -184,22 +188,96 @@ class TrainerLR:
 		self._set_best_fit()
 
 	def show_data(self) -> None:
-		for lr, data in self.trained_data.items():
-			print(f"learning rate: {lr:.8f}{data}\n")
-		print(f"best fit line: {self.lr_best_fit:.8f}{self.get_best_fit()}\n")
+		if len(self.trained_data) > 1:
+			for lr, data in self.trained_data.items():
+				print(f"learning rate: {lr:.4f}{data}\n")
+		print(f"best fit line: {self.lr_best_fit:.4f}{self.get_best_fit()}\n")
 
-	def plot_data(self) -> None:
-		plotter: Plotter = Plotter(nrows=3, ncols=3, figsize=(14, 10), layout="constrained")
+	def plot_data_single(self, learning_rate: np.float64) -> None:
+		try:
+			data_to_plot: TrainingData = self.trained_data[learning_rate]
+		except KeyError:
+			raise TrainingError(f"No data found for learning rate: {learning_rate}")
+
+		layout: dict = [
+			["main", "main", "_"],
+			["main", "main", "best_fit"],
+			["rmse", "r_sq", "r_corr"],
+		]
+		# plotter: Plotter = Plotter(nrows=3, ncols=3, figsize=(14, 10), layout="constrained")
+		plotter: Plotter = Plotter(mosaic=layout, figsize=(14, 10), layout="constrained")
+		plotter.hide_graph("_")
+		# plot regression line for every learning rate
+		for tetha in data_to_plot.train_progression.values():
+			plotter.draw_fit_line(
+				self.feature, 
+				self.target,
+				lambda x: x * tetha["tetha_1"] + tetha["tetha_0"],
+				index_graph="main",
+				title=f"Regression lines",
+				color=np.random.default_rng(seed=int(abs(tetha["tetha_1"] * tetha["tetha_0"]))).random(3),
+				label=f"learning rate: {learning_rate:.4f}")
+		# plot best fit line
+		best_fit: TrainingData = self.get_best_fit()
+		plotter.draw_fit_line(
+			self.feature,
+			self.target,
+			best_fit.estimate,
+			index_graph="best_fit",
+			title="Best fit",
+			color="green",
+			label=f"points")
+
+		# plot bars of RMSE, R squared and correlation index for every learning rate
+		epochs: np.ndarray = data_to_plot.train_progression.keys()
+		mse_values: np.ndarray = [_mse(self.target, self.feature * tetha["tetha_1"] + tetha["tetha_0"]) for tetha in data_to_plot.train_progression.values()]
+		plotter.draw_rmse_line(
+			epochs,
+			mse_values,
+			index_graph="rmse",
+			label="epoch",
+			is_logarithmic=self.log_scale)
+		r_sq_values: np.ndarray = [_rsquared(self.target, self.feature * tetha["tetha_1"] + tetha["tetha_0"]) for tetha in data_to_plot.train_progression.values()]
+		plotter.draw_rsquared_line(
+			epochs,
+			r_sq_values,
+			index_graph="r_sq",
+			label="epoch",
+			is_logarithmic=self.log_scale)
+		plotter.draw_correlation(
+			epochs,
+			np.pow(r_sq_values, 2, dtype=np.float64),
+			index_graph="r_corr",
+			label="epoch",
+			is_logarithmic=self.log_scale
+		)
+		plotter.add_info(0.77, 0.8, f"""learning rate: {self.lr_best_fit:.4f}
+tetha0: {best_fit.tetha_0:.4f}
+tetha1: {best_fit.tetha_1:.4f}
+RMSE: {best_fit.rmse:.2f}€
+R squared: {best_fit.r_determination:.2f}
+Correlation index: {best_fit.r_correlation:.2f}""")
+	
+		plotter.show()
+
+	def plot_data_all(self) -> None:
+		layout: dict = [
+			["main", "main", "best_fit"],
+			["main", "main", "best_fit"],
+			["rmse", "r_sq", "r_corr"],
+		]
+		# plotter: Plotter = Plotter(nrows=3, ncols=3, figsize=(14, 10), layout="constrained")
+		plotter: Plotter = Plotter(mosaic=layout, figsize=(14, 10), layout="constrained")
 		# plot regression line for every learning rate
 		for lr, data in self.trained_data.items():
 			plotter.draw_fit_line(
 				self.feature, 
 				self.target,
 				data.estimate,
-				index_graph=[0, 1],
+				index_graph="main",
 				title=f"Regression lines",
 				color=data.color,
-				label=f"learning rate: {lr:.8f}")
+				label=f"learning rate: {lr:.4f}")
 
 		# plot best fit line
 		best_fit: TrainingData = self.get_best_fit()
@@ -207,28 +285,37 @@ class TrainerLR:
 			self.feature,
 			self.target,
 			best_fit.estimate,
-			index_graph=[1, 0],
+			index_graph="best_fit",
 			title="Best fit",
 			color="green",
 			label=f"points")
 
-		# plot bars of RMSE and R squared for every learning rate
-		learning_rates: list[TrainingData] = self.trained_data.keys(); # [train.learning_rate for train in self.trained_data]
+		# plot bars of RMSE, R squared and correlation index for every learning rate
+		learning_rates: list[TrainingData] = self.trained_data.keys()
 		plotter.draw_rmse_line(
 			learning_rates,
 			[train.rmse for train in self.trained_data.values()],
-			index_graph=[2, 0],
+			index_graph="rmse",
+			label="learning rate",
 			is_logarithmic=self.log_scale)
 		plotter.draw_rsquared_line(
 			learning_rates,
 			[train.r_determination for train in self.trained_data.values()],
-			index_graph=[2, 2],
+			index_graph="r_sq",
+			label="learning rate",
 			is_logarithmic=self.log_scale)
-
+		plotter.draw_correlation(
+			learning_rates,
+			[train.r_correlation for train in self.trained_data.values()],
+			index_graph="r_corr",
+			label="learning rate",
+			is_logarithmic=self.log_scale
+		)
+	
 		lr_min: np.float64 = min(self.trained_data.keys())
 		lr_max: np.float64 = max(self.trained_data.keys())
-		plotter.add_info(0.02, 0.97, f"learning rates range: [{lr_min:.8f}: {lr_max:.8f}]\nepochs: {self.epochs}\ndata standardized: {self.standardized_data}\ndata normalized: {self.normalized_data}")
-		plotter.add_info(0.52, 0.97, f"learning rate: {self.lr_best_fit:.8f}\ntetha0: {best_fit.tetha_0:.4f}\ntetha1: {best_fit.tetha_1:.4f}")
+		plotter.add_info(0.01, 0.97, f"learning rates range: [{lr_min:.4f}: {lr_max:.4f}]\nepochs: {self.epochs}\ndata standardized: {self.standardized_data}\ndata normalized: {self.normalized_data}", layout=[0, 0, 1, 0.9])
+		plotter.add_info(0.67, 0.97, f"learning rate: {self.lr_best_fit:.4f}\ntetha0: {best_fit.tetha_0:.4f}\ntetha1: {best_fit.tetha_1:.4f}", layout=[0, 0, 1, 0.9])
 
 		plotter.show()
 
@@ -237,17 +324,26 @@ class TrainerLR:
 			if not self.lr_best_fit or self.trained_data[self.lr_best_fit].rmse > data.rmse:
 				self.lr_best_fit = lr
 
-	def _add_new_data(self, learning_rate: np.float64, tetha_0: np.float64, tetha_1: np.float64) -> None:
+	def _add_new_data(self, **args) -> None:
 		if self.standardized_data:
-			tetha_0 = tetha_0 - tetha_1 * self.avg_feature / self.stddev_feature
-			tetha_1 = tetha_1 / self.stddev_feature
+			args["tetha_0"] = args["tetha_0"] - args["tetha_1"] * self.avg_feature / self.stddev_feature
+			args["tetha_1"] = args["tetha_1"] / self.stddev_feature
 
-		self.trained_data[learning_rate] = TrainingData(tetha_0, tetha_1, self.feature, self.target)
+			if "train_progression" in args:
+				for epoch in args["train_progression"].keys():
+					args["train_progression"][epoch]["tetha_0"] = args["train_progression"][epoch]["tetha_0"] - args["train_progression"][epoch]["tetha_1"] * self.avg_feature / self.stddev_feature
+					args["train_progression"][epoch]["tetha_1"] = args["train_progression"][epoch]["tetha_1"] / self.stddev_feature
+		
+		learning_rate: np.float64 = args.pop("learning_rate")
+		args["feature"] = self.feature
+		args["target"] = self.target
+
+		self.trained_data[learning_rate] = TrainingData(**args)
 
 	def _write_status_process(self, pid: np.int64, learning_rate: np.float64, progress: np.int64) -> None:
 		is_done: str = " done. " if progress == 50 else "...    "
 		progress :str = "#" * progress + "_" * (50 - progress)
-		print(f"[ PID: {pid} ] - learning rate: {learning_rate:15.8f} - training{is_done}[ {progress} ]")
+		print(f"[ PID: {pid} ] - learning rate: {learning_rate:11.4f} - training{is_done}[ {progress} ]")
 
 
 def _sum_squared(values: np.ndarray) -> np.float64:
@@ -301,23 +397,36 @@ def _rsquared(measured_values: np.ndarray, estimated_values: np.ndarray) -> np.f
 
 	return 1 - _sum_squared(deltas_ssr) / _sum_squared(deltas_sst)
 
-def _trainLR(feature: np.ndarray, target: np.ndarray, N: np.int64, epochs: np.int64, learning_rate: np.float64, proc_info = None) -> dict:
+def _trainLR(feature: np.ndarray, target: np.ndarray, N: np.int64, epochs: np.int64, learning_rate: np.float64, proc_info = None, store_progression: bool = False) -> dict:
 	assert N > 0 and N == len(target)
 	tetha_0: np.float64 = .0
 	tetha_1: np.float64 = .0
+	step_progress: np.float64 = epochs // 50.
 
-	# if the function is executed in parallel, save the progress of the training so it can be printed in the main process
-	step_progress: np.float64 = -1.
+	# if the function is executed in parallel, save the progress 
+	# of the training so it can be printed in the main process
 	if proc_info: 
 		proc_info.pid = os.getpid()
-		step_progress = epochs // 50
+
+	# if enabled, store the evolution of mse, r sq. 
+	# and correlation index during the training
+	if store_progression:
+		train_progression: dict = {}
 
 	for count in range(epochs):
-		if proc_info and count % step_progress == 0:
-			proc_info.progress += 1
-
-		y_delta: np.ndarray = (tetha_1 * feature + tetha_0) - target
+		y_estimated: np.ndarray = tetha_1 * feature + tetha_0
+		y_delta: np.ndarray = y_estimated - target
 		tetha_0 -= learning_rate / N * sum(y_delta)
 		tetha_1 -= learning_rate / N * sum(y_delta * feature)
 
-	return {"learning_rate": learning_rate, "tetha_0": tetha_0, "tetha_1": tetha_1, }
+		if count % step_progress == 0:
+			if proc_info:
+				proc_info.progress += 1
+			if store_progression:
+				train_progression[count] = {"tetha_0": tetha_0, "tetha_1": tetha_1}
+
+	training_result: dict = {"learning_rate": learning_rate, "tetha_0": tetha_0, "tetha_1": tetha_1}
+	if store_progression:
+		training_result["train_progression"] = train_progression
+
+	return training_result
